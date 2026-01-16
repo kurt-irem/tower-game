@@ -10,9 +10,11 @@
  */
 
 const int JOYSTICK_X = A0;  // Joystick X-axis pin
+const int JOYSTICK_Y = A1;  // Joystick Y-axis pin
 const int BUTTON_PIN = 2;    // Optional: Joystick button
 
 int xValue = 0;
+int yValue = 0;
 int centerThreshold = 50;    // Deadzone around center
 
 void setup() {
@@ -26,8 +28,9 @@ void setup() {
 }
 
 void loop() {
-  // Read joystick X-axis (0-1023)
+  // Read joystick axes (0-1023)
   xValue = analogRead(JOYSTICK_X);
+  yValue = analogRead(JOYSTICK_Y);
   
   // Determine direction based on joystick position
   // Center is around 512
@@ -38,6 +41,12 @@ void loop() {
   else if (xValue > (512 + centerThreshold)) {
     // Right movement
     Serial.println("RIGHT");
+  }
+  
+  // Check for down movement
+  if (yValue > (512 + centerThreshold)) {
+    // Down movement - drop block faster
+    Serial.println("DOWN");
   }
   
   // Optional: Read button press for drop/action

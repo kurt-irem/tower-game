@@ -28,8 +28,10 @@ Platform platform;
 int score = 0;
 boolean gameOver = false;
 float fallSpeed = 2.0;
-int blockWidth = 80;
-int blockHeight = 30;
+float blockWidth = 80;
+float blockHeight = 30;
+float towerOffset = 0; // Cumulative horizontal offset (instability)
+float maxTowerOffset = 100; // Maximum allowed offset before tipping
 
 // Colors
 color[] blockColors = {
@@ -76,10 +78,16 @@ void draw() {
     displayGameOver();
   }
   
-  // Display stacked blocks
+  // Display stacked blocks with tilt effect
+  pushMatrix();
+  translate(width/2, 0);
+  float tiltAngle = map(towerOffset, -maxTowerOffset, maxTowerOffset, -0.15, 0.15);
+  rotate(tiltAngle);
+  translate(-width/2, 0);
   for (Block b : stackedBlocks) {
     b.display();
   }
+  popMatrix();
   
   // Display platform
   platform.display();
@@ -108,7 +116,7 @@ void handleArduinoInput(String input) {
     currentBlock.moveLeft();
   } else if (input.equals("RIGHT")) {
     currentBlock.moveRight();
-  } else if (input.equals("DROP")) {
+  } else if (input.equals("DROP") || input.equals("DOWN")) {
     dropBlock();
   }
 }
@@ -155,24 +163,32 @@ void dropBlock() {
   
   float overlap = calculateOverlap(currentBlock.x, currentBlock.w, targetX, targetWidth);
   
-  // Check if there's enough overlap
+  // Check if there's enough overlap (block must be at least partially on target)
   if (overlap > 20) { // Minimum overlap threshold
-    // Successful placement
+    // Calculate misalignment (how far off-center the block is)
+    float misalignment = currentBlock.x - targetX;
+    
+    // Add to tower instability
+    towerOffset += misalignment;
+    
+    // Check if tower is too unstable (tipping point reached)
+    if (abs(towerOffset) > maxTowerOffset) {
+      gameOver = true;
+      return;
+    }
+    
+    // Successful placement - block keeps full width
     currentBlock.y = getTopOfStack() - blockHeight;
-    currentBlock.w = overlap;
-    currentBlock.x = (max(currentBlock.x - currentBlock.w/2, targetX - targetWidth/2) + 
-                      min(currentBlock.x + currentBlock.w/2, targetX + targetWidth/2)) / 2;
     currentBlock.isFalling = false;
     stackedBlocks.add(currentBlock);
     
     score++;
     fallSpeed += 0.1; // Increase difficulty
-    blockWidth = overlap; // Next block matches the overlap width
     
-    // Spawn new block
+    // Spawn new block with same width
     spawnNewBlock();
   } else {
-    // Failed - Game Over
+    // Failed - no overlap, Game Over
     gameOver = true;
   }
 }
@@ -196,7 +212,22 @@ void displayUI() {
   textSize(24);
   text("Score: " + score, 20, 40);
   
+  // Stability bar
+  textSize(16);
+  text("Stability:", 20, 70);
+  
+  // Stability bar background
+  fill(50);
+  rect(120, 55, 200, 20);
+  
+  // Stability bar fill (green to red based on instability)
+  float stabilityPercent = abs(towerOffset) / maxTowerOffset;
+  color barColor = lerpColor(#00FF00, #FF0000, stabilityPercent);
+  fill(barColor);
+  rect(120, 55, 200 * stabilityPercent, 20);
+  
   // Controls info
+  fill(255);
   textSize(14);
   text("Controls: A/D or Arrows or Joystick", 20, height - 40);
   text("Drop: SPACE", 20, height - 20);
@@ -228,6 +259,7 @@ void resetGame() {
   gameOver = false;
   fallSpeed = 2.0;
   blockWidth = 80;
+  towerOffset = 0;
   spawnNewBlock();
 }
 
@@ -263,13 +295,13 @@ class Block {
   
   void moveLeft() {
     if (isFalling) {
-      x = max(w/2, x - 10);
+      x = max(w/2, x - 20);
     }
   }
   
   void moveRight() {
     if (isFalling) {
-      x = min(width - w/2, x + 10);
+      x = min(width - w/2, x + 20);
     }
   }
 }
