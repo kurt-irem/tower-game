@@ -1,5 +1,5 @@
 /*
- * Tower Stack Game - Processing (Button Only Version)
+ * Tower Stack Game - Processing
  * 
  * Blocks move horizontally across the screen from left or right.
  * Press the button at the right time to drop the block onto the platform.
@@ -32,9 +32,9 @@ float blockHeight = 30;
 float towerOffset = 0;
 float maxTowerOffset = 100;
 float blockDescentAmount = 20;
-float blockSpeed = 5.0; // Horizontal movement speed
+float blockSpeed = 5.5; // Horizontal movement speed
 
-// Colors - Modern professional palette
+// Colors 
 color[] blockColors = {
   #667EEA, #764BA2, #F093FB, #4FACFE,
   #43E97B, #FA709A, #FEE140, #30CFD0
@@ -115,7 +115,7 @@ void draw() {
       
       score++;
       blockSpeed += 0.2; // Increase difficulty
-      fallSpeed += 0.05;
+      fallSpeed += 0.1;
       
       // Spawn new block
       spawnNewBlock();
@@ -130,12 +130,9 @@ void draw() {
     if (currentBlock.isOutOfBounds()) {
       gameOver = true;
     }
-  } else {
-    // Game over screen
-    displayGameOver();
   }
   
-  // Display stacked blocks (no tilt effect - stays straight)
+  // Display stacked blocks
   for (Block b : stackedBlocks) {
     b.display();
   }
@@ -145,12 +142,17 @@ void draw() {
   
   // Display score and info
   displayUI();
+
+  // Game over screen
+  if (gameOver) {
+    displayGameOver();
+  }
 }
 
 void initializeArduino() {
   try {
     if (Serial.list().length > 0) {
-      // Try to find Arduino port (avoid Bluetooth)
+      // Try to find Arduino port
       String portName = null;
       for (String port : Serial.list()) {
         if (port.contains("usbmodem") || port.contains("usbserial") || port.contains("COM")) {
@@ -261,7 +263,6 @@ void dropBlock() {
       currentBlock.hasTarget = true;
       stackedBlocks.add(currentBlock);
       
-      // Don't move tower or spawn new block here - happens after landing
     } else {
       gameOver = true;
     }
@@ -287,26 +288,39 @@ void displayUI() {
   // Ensure correct rect mode for UI elements
   rectMode(CORNER);
   
-  // Score card with shadow
-  drawCard(20, 20, 200, 80);
+  // Top-left layout: score card with tilt underneath
+  float topY = 20;
+  float leftX = 20;
+  float scoreSize = 90;
+  float gap = 16;
+  float tiltWidth = 340;
+  float tiltHeight = 95;
+  
+  // Tilt card on top
+  float tiltX = leftX;
+  float tiltY = topY;
+  drawCard(tiltX, tiltY, tiltWidth, tiltHeight);
   fill(textColor);
   textAlign(LEFT);
-  textSize(16);
-  text("SCORE", 40, 50);
-  textSize(36);
-  text(score, 40, 85);
+  textSize(14);
+  text("TILT BALANCE", tiltX + 20, tiltY + 28);
   
-  // Stability/Tilt indicator with modern design
-  drawCard(20, 120, 340, 100);
+  // Tilt bar background
+  float barX = tiltX + 20;
+  float barY = tiltY + 48;
+  float barWidth = tiltWidth - 40;
+  float barHeight = 24;
+  
+  // Score square underneath tilt
+  float scoreX = leftX;
+  float scoreY = tiltY + tiltHeight + gap;
+  drawCard(scoreX, scoreY, scoreSize, scoreSize);
   fill(textColor);
-  textSize(16);
-  text("TILT BALANCE", 40, 150);
-  
-  // Tilt bar background (center-based)
-  float barX = 50;
-  float barY = 175;
-  float barWidth = 300;
-  float barHeight = 25;
+  textAlign(CENTER);
+  textSize(14);
+  text("SCORE", scoreX + scoreSize/2, scoreY + 28);
+  textSize(32);
+  text(score, scoreX + scoreSize/2, scoreY + 68);
   
   // Background track
   fill(30, 30, 50);
@@ -351,8 +365,8 @@ void displayUI() {
   // Stability percentage
   textAlign(CENTER);
   fill(indicatorColor);
-  textSize(14);
-  text(int((1 - stabilityPercent) * 100) + "%", barX + barWidth/2, barY - 10);
+  textSize(13);
+  text(int((1 - stabilityPercent) * 100) + "%", barX + barWidth/2, barY - 8);
   
   // Controls hint
   fill(textColor, 150);
