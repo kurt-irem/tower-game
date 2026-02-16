@@ -196,6 +196,9 @@ void sendTiltToArduino() {
     int tiltValue = (int) map(towerOffset, -maxTowerOffset, maxTowerOffset, -100, 100);
     String tiltData = "TILT:" + tiltValue + "\n";
     arduinoPort.write(tiltData);
+    
+    // Debug: Print to console
+    println("Sending to Arduino: " + tiltData.trim() + " (towerOffset: " + towerOffset + ")");
   } catch (Exception e) {
     // Serial write failed
     useArduino = false;
@@ -232,6 +235,7 @@ float getTopOfStack() {
 
 void dropBlock() {
   if (gameOver) return;
+  if (currentBlock.isFalling || currentBlock.hasTarget) return;
   
   // Check if block is within drop zone (near center)
   float dropZoneLeft = platform.x - platform.w/2 - 30;
@@ -439,6 +443,16 @@ void resetGame() {
   blockWidth = 80;
   towerOffset = 0;
   platform.y = height - 100;
+  
+  // Reset servo to center position
+  if (useArduino) {
+    try {
+      arduinoPort.write("RESET\n");
+    } catch (Exception e) {
+      // Ignore if sending fails
+    }
+  }
+  
   spawnNewBlock();
 }
 
