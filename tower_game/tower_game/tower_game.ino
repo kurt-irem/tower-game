@@ -1,55 +1,60 @@
 /*
- * Tower Stack Game - Arduino Controller (Button + Stepper Motor)
+ * Tower Stack Game - Arduino Controller (Button + Servo Motor + Fans)
  * 
- * This sketch reads button input and controls a stepper motor
+ * This sketch reads button input and controls a servo motor
  * that tilts with the tower based on balance.
  * 
  * Hardware Setup:
  * - Button connected to pin 2
- * - Stepper Motor with DRV8825 driver:
- *   - STEP  -> Pin 8
- *   - DIR   -> Pin 9
- *   - ENABLE -> Pin 10 (optional, can be tied to GND to always enable)
- *   - GND   -> GND
- *   - Motor A1, A2, B1, B2 to stepper motor coils
+ * - Joy-it PWM Servo Motor -> Pin 10
+ * - Left Fan -> Pin 5 
+ * - Right Fan -> Pin 6 
  */
 
-const int BUTTON_PIN = 2;      // Button pin
-const int STEP_PIN = 8;        // Stepper STEP pin
-const int DIR_PIN = 9;         // Stepper DIR pin
-const int ENABLE_PIN = 10;     // Stepper ENABLE pin
+#include <Servo.h>
 
-// Motor control
-int currentMotorPosition = 0;
-int targetMotorPosition = 0;
-const int MAX_MOTOR_STEPS = 1600;    // Maximum tilt in each direction
-const int MOTOR_STEP_SIZE = 10;      // Steps to move at a time
-unsigned long lastMotorUpdate = 0;
-const unsigned long MOTOR_UPDATE_INTERVAL = 20; // Update every 20ms
-const int STEP_PULSE_WIDTH = 20;     // Microseconds for step pulse
-unsigned long lastStepTime = 0;
+const int BUTTON_PIN = 2;      // Button pin
+const int SERVO_PIN = 10;      // Servo signal pin 
+const int LEFT_FAN_PIN = 5;    // Left fan
+const int RIGHT_FAN_PIN = 6;   // Right fan
+
+// Servo control
+Servo tiltServo;
+int targetServoAngle = 90;     // Target angle (0-180, 90 = center)
+int currentServoAngle = 90;    // Current angle
+const int SERVO_CENTER = 90;   // Center position (no tilt)
+const int SERVO_MIN = 70;      // Minimum angle (max left tilt)
+const int SERVO_MAX = 110;     // Maximum angle (max right tilt)
+
+// Fan control
+unsigned long leftFanStartTime = 0;
+unsigned long rightFanStartTime = 0;
+const unsigned long FAN_DURATION = 3000;  // 3 seconds
+boolean leftFanActive = false;
+boolean rightFanActive = false;
 
 void setup() {
   Serial.begin(9600);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   
-  // Initialize stepper motor pins
-  pinMode(STEP_PIN, OUTPUT);
-  pinMode(DIR_PIN, OUTPUT);
-  pinMode(ENABLE_PIN, OUTPUT);
+  // Initialize fan pins
+  pinMode(LEFT_FAN_PIN, OUTPUT);
+  pinMode(RIGHT_FAN_PIN, OUTPUT);
+  digitalWrite(LEFT_FAN_PIN, LOW);
+  digitalWrite(RIGHT_FAN_PIN, LOW);
   
-  // Enable motor initially (LOW = enabled on DRV8825)
-  digitalWrite(ENABLE_PIN, LOW);
-  
-  // Set initial direction
-  digitalWrite(DIR_PIN, LOW);
+  // Initialize servo motor
+  tiltServo.attach(SERVO_PIN);
+  tiltServo.write(SERVO_CENTER);  // Start at center position
+  currentServoAngle = SERVO_CENTER;
+  targetServoAngle = SERVO_CENTER;
   
   // Wait for serial connection
   while (!Serial) {
     ; 
   }
   
-  Serial.println("Tower Game Controller Ready with DRV8825");
+  Serial.println("Tower Game Controller Ready with Servo Motor and Fans");
 }
 
 void loop() {
@@ -59,8 +64,11 @@ void loop() {
     delay(200); // Debounce
   }
   
-  // Update motor position if target has changed
-  updateMotorPosition();
+  // Update servo position smoothly
+  updateServoPosition();
+  
+  // Update fan states
+  updateFans();
   
   // Check for incoming tilt data from Processing
   if (Serial.available() > 0) {
@@ -70,49 +78,75 @@ void loop() {
     // Expected format: "TILT:value" where value is -100 to 100
     if (data.startsWith("TILT:")) {
       int tiltValue = data.substring(5).toInt();
+      Serial.print("Parsed tilt value: ");
+      Serial.print(tiltValue);
+      Serial.print(" -> Target angle: ");
       updateTiltTarget(tiltValue);
+      Serial.println(targetServoAngle);
+    }
+    // Reset servo to center on game reset
+    else if (data.equals("RESET")) {
+      targetServoAngle = SERVO_CENTER;
+      Serial.println("Servo reset to center");
     }
   }
-  
-  delay(30);
 }
 
 void updateTiltTarget(int tiltValue) {
-  // Convert tilt value (-100 to 100) to motor steps (-MAX_MOTOR_STEPS to MAX_MOTOR_STEPS)
-  // tiltValue should come from Processing as a normalized value
-  targetMotorPosition = map(tiltValue, -100, 100, -MAX_MOTOR_STEPS, MAX_MOTOR_STEPS);
+  // Convert tilt value (-100 to 100) to servo angle (SERVO_MIN to SERVO_MAX)
+  // -100 = max left tilt, 0 = center, +100 = max right tilt
+  targetServoAngle = map(tiltValue, -100, 100, SERVO_MIN, SERVO_MAX);
+  targetServoAngle = constrain(targetServoAngle, SERVO_MIN, SERVO_MAX);
 }
 
-void updateMotorPosition() {
-  unsigned long currentTime = millis();
-  
-  // Update motor gradually to smooth movement
-  if (currentTime - lastMotorUpdate >= MOTOR_UPDATE_INTERVAL) {
-    lastMotorUpdate = currentTime;
+void updateServoPosition() {
+  // Smoothly move servo to target position
+  if (currentServoAngle < targetServoAngle) {
+    currentServoAngle++;
+    tiltServo.write(currentServoAngle);
     
-    if (currentMotorPosition < targetMotorPosition) {
-      // Move right (clockwise) - set DIR HIGH
-      digitalWrite(DIR_PIN, HIGH);
-      int stepsToMove = min(MOTOR_STEP_SIZE, targetMotorPosition - currentMotorPosition);
-      moveMotorSteps(stepsToMove);
-      currentMotorPosition += stepsToMove;
-    } 
-    else if (currentMotorPosition > targetMotorPosition) {
-      // Move left (counter-clockwise) - set DIR LOW
-      digitalWrite(DIR_PIN, LOW);
-      int stepsToMove = min(MOTOR_STEP_SIZE, currentMotorPosition - targetMotorPosition);
-      moveMotorSteps(stepsToMove);
-      currentMotorPosition -= stepsToMove;
+    // Tilting right (angle increasing) -> activate left fan
+    if (currentServoAngle > SERVO_CENTER + 3 && !leftFanActive) {
+      activateLeftFan();
     }
+    
+    delay(10);
+  } 
+  else if (currentServoAngle > targetServoAngle) {
+    currentServoAngle--;
+    tiltServo.write(currentServoAngle);
+    
+    // Tilting left (angle decreasing) -> activate right fan
+    if (currentServoAngle < SERVO_CENTER - 3 && !rightFanActive) {
+      activateRightFan();
+    }
+    
+    delay(10);
   }
 }
 
-void moveMotorSteps(int steps) {
-  for (int i = 0; i < steps; i++) {
-    // Send pulse to STEP pin
-    digitalWrite(STEP_PIN, HIGH);
-    delayMicroseconds(STEP_PULSE_WIDTH);
-    digitalWrite(STEP_PIN, LOW);
-    delayMicroseconds(STEP_PULSE_WIDTH);
+void activateLeftFan() {
+  digitalWrite(LEFT_FAN_PIN, HIGH);
+  leftFanActive = true;
+  leftFanStartTime = millis();
+}
+
+void activateRightFan() {
+  digitalWrite(RIGHT_FAN_PIN, HIGH);
+  rightFanActive = true;
+  rightFanStartTime = millis();
+}
+
+void updateFans() {
+  // Check if left fan should be turned off
+  if (leftFanActive && (millis() - leftFanStartTime >= FAN_DURATION)) {
+    digitalWrite(LEFT_FAN_PIN, LOW);
+    leftFanActive = false;
+  }
+  
+  // Check if right fan should be turned off
+  if (rightFanActive && (millis() - rightFanStartTime >= FAN_DURATION)) {
+    digitalWrite(RIGHT_FAN_PIN, LOW);
+    rightFanActive = false;
   }
 }
